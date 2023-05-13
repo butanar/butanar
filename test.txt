@@ -1,0 +1,119 @@
+import logging
+import os
+import time
+import telepot
+import vk_api
+import requests
+
+TELEGRAM_TOKEN = '1855357259:AAG0nLclMS1t8ls4nlYgbZ9vDWdYv9SWeMk'
+VK_TOKEN = 'vk1.a.iZL934UWw4BpGuq5XnISfg-B1NMY585BhpLBCJn9YBuONBllgnRnDNR-eJypFvZ6YedFrMLJ3aqnDkxkJVfzE1UyuVO4VifdOGqJnPJGuy3qSdk8WPdcm6tvTI8sCu8nFeuOS4YVNCy2Ci8fBMdOeTRA8G5zK8uA0J4UsBFdvO3vt5Lg2XLm8fPq86Q9xX-XgrzdIh4WxiRFTkLQzPIT8A'
+
+LAST_MESSAGE_FILE = 'last_message.txt'
+DOWNLOAD_DIR = 'downloads/'
+
+LOGGER = logging.getLogger(name)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+
+class TelegramBot:
+def init(self):
+self.bot = telepot.Bot(TELEGRAM_TOKEN)
+
+def process_message(self, message):
+    content_type, chat_type, chat_id = telepot.glance(message)
+    if content_type == 'text':
+        text = message['text']
+        return text, message['message_id']
+    elif content_type == 'photo':
+        # Get the biggest photo
+        file_id = message['photo'][-1]['file_id']
+        file_path = self.bot.getFile(file_id)['file_path']
+        file_name = os.path.basename(file_path)
+        r = requests.get(f'https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}')
+
+        with open(DOWNLOAD_DIR + file_name, 'wb') as f:
+            f.write(r.content)
+
+        return DOWNLOAD_DIR + file_name, message['message_id'], 'photo'
+    elif content_type == 'video':
+        file_id = message['video']['file_id']
+        file_path = self.bot.getFile(file_id)['file_path']
+        file_name = os.path.basename(file_path)
+        r = requests.get(f'https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}')
+
+        with open(DOWNLOAD_DIR + file_name, 'wb') as f:
+            f.write(r.content)
+
+        return DOWNLOAD_DIR + file_name, message['message_id'], 'video'
+
+def get_last_message(self, channel_name):
+    try:
+        messages = self.bot.getUpdates()
+        for message in reversed(messages):
+            if message.get('channel_post') and message['channel_post']['chat']['title'] == channel_name:
+                return self.process_message(message['channel_post'])
+
+        LOGGER.info(f"No new messages found in {channel_name}")
+        return None, None, None
+    except Exception as e:
+        LOGGER.error(f"Error getting last message from Telegram channel {channel_name}: {str(e)}")
+        raise e
+
+Копировать
+class VkBot:
+def init(self):
+self.vk_session = vk_api.VkApi(token=VK_TOKEN)
+self.vk = self.vk_session.get_api()
+
+def send_message(self, group_id, message_type, message):
+    try:
+        if message_type == 'text':
+            response = self.vk.wall.post(owner_id=-int(group_id), message=message)
+        elif message_type == 'photo':
+            response = self.vk.photos.getWallUploadServer(group_id=group_id)
+            upload_url = response['upload_url']
+            with open(message, 'rb') as f:
+                response = requests.post(upload_url, files={'photo': f})
+            photo_data = self.vk.photos.saveWallPhoto(group_id=group_id, server=response.json()['server'], photo=response.json()['photo'], hash=response.json()['hash'])[0]
+            response = self.vk.wall.post(owner_id=-int(group_id), attachments=f"photo{photo_data['owner_id']}_{photo_data['id']}")
+        elif message_type == 'video':
+            response = self.vk.video.save(name='video_name', group_id=group_id, is_private=1, wallpost=1, link=f"https://vk.com/video-{group_id}_", video_file=open(message, 'rb'))
+            response = self.vk.wall.post(owner_id=-int(group_id), attachments=f"video{response['owner_id']}_{response['video_id']}")
+        return response['post_id']
+    except Exception as e:
+        LOGGER.error(f"Error sending message to VK group {group_id}: {str(e)}")
+        raise e
+def get_last_vk_message_id():
+try:
+with open(LAST_MESSAGE_FILE, 'r') as f:
+last_message_id = f.read().strip()
+if last_message_id:
+return int(last_message_id)
+else:
+return None
+except:
+LOGGER.exception('Error reading from file')
+return None
+
+def save_last_vk_message_id(message_id):
+try:
+with open(LAST_MESSAGE_FILE, 'w') as f:
+f.write(str(message_id))
+except:
+LOGGER.exception('Error writing to file')
+
+if name == "main":
+try:
+telegram_bot = TelegramBot()
+vk_bot = VkBot()
+last_vk_post_id = get_last_vk_message_id()
+while True:
+last_telegram_message, last_telegram_message_id, message_type = telegram_bot.get_last_message("name_chanel_2")
+if last_telegram_message and last_telegram_message_id != last_vk_post_id:
+vk_bot.send_message("219753004", message_type, last_telegram_message)
+last_vk_post_id = last_telegram_message_id
+save_last_vk_message_id(last_vk_post_id)
+
+        # Wait for 1 minute before checking again
+        time.sleep(60)
+except Exception as e:
+    LOGGER.exception(e)
